@@ -2,8 +2,8 @@ mod handler;
 mod model;
 mod response;
 
-use actix_web::{web, App, HttpServer};
 use actix_web::middleware::Logger;
+use actix_web::{web, App, HttpServer};
 
 use crate::model::AppState;
 
@@ -20,8 +20,13 @@ async fn main() -> std::io::Result<()> {
 
     println!("🚀 Server started successfully. Listening on port 8080! 🚀");
 
-    HttpServer::new(move || App::new().app_data(app_data.clone()).configure(handler::config).wrap(Logger::default()))
-        .bind(("127.0.0.1", 8080))?
-        .run()
-        .await
+    HttpServer::new(move || {
+        App::new()
+            .app_data(app_data.clone())
+            .configure(handler::config)
+            .wrap(Logger::default())
+    })
+    .bind(("127.0.0.1", 8080))?
+    .run()
+    .await
 }

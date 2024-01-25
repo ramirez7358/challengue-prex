@@ -14,6 +14,18 @@ pub struct Client {
     pub balance: Option<Decimal>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CreditRequest {
+    pub client_id: String,
+    pub credit_amount: Decimal
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CreditResponse {
+    pub client_id: String,
+    pub balance: Decimal
+}
+
 pub struct AppState {
     pub clients_temp_db: Arc<Mutex<Vec<Client>>>
 }
