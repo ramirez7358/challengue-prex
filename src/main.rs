@@ -1,7 +1,7 @@
+mod balance_storage;
 mod handler;
 mod model;
 mod response;
-mod balance_storage;
 
 use actix_web::middleware::Logger;
 use actix_web::{web, App, HttpServer};
