@@ -1,9 +1,13 @@
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_web::{
+    get, post,
+    web::{self},
+    HttpResponse, Responder,
+};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::{
-    model::{AppState, Client, CreditRequest, CreditResponse},
+    model::{AppState, Client, ClientInfo, CreditOrDebitRequest, CreditOrDebitResponse},
     response::{CreateClientResponse, GenericResponse, SingleResponse},
 };
 
@@ -11,18 +15,20 @@ pub fn config(conf: &mut web::ServiceConfig) {
     let scope = web::scope("/app")
         .service(health_checker_handler)
         .service(new_client)
-        .service(new_credit_transaction);
+        .service(new_credit_transaction)
+        .service(new_debit_transaction)
+        .service(client_balance);
 
     conf.service(scope);
 }
 
 #[post("/new_client")]
-async fn new_client(mut body: web::Json<Client>, data: web::Data<AppState>) -> impl Responder {
+async fn new_client(body: web::Json<ClientInfo>, data: web::Data<AppState>) -> impl Responder {
     let mut vec = data.clients_temp_db.lock().unwrap();
 
     if vec
         .iter()
-        .any(|client| client.document_number == body.document_number)
+        .any(|client| client.info.document_number == body.document_number)
     {
         return HttpResponse::Conflict().json(GenericResponse {
             status: "fail".to_string(),
@@ -34,9 +40,12 @@ async fn new_client(mut body: web::Json<Client>, data: web::Data<AppState>) -> i
     }
 
     let uuid_id = Uuid::new_v4().to_string();
-    body.id = Some(uuid_id.clone());
 
-    vec.push(body.into_inner());
+    vec.push(Client {
+        id: uuid_id.clone(),
+        balance: Decimal::new(0, 0),
+        info: body.to_owned(),
+    });
 
     HttpResponse::Ok().json(SingleResponse {
         status: "success".to_string(),
@@ -46,36 +55,30 @@ async fn new_client(mut body: web::Json<Client>, data: web::Data<AppState>) -> i
 
 #[post("/new_credit_transaction")]
 async fn new_credit_transaction(
-    body: web::Json<CreditRequest>,
+    body: web::Json<CreditOrDebitRequest>,
     data: web::Data<AppState>,
 ) -> impl Responder {
-    let mut vec = data.clients_temp_db.lock().unwrap();
-
-    if let Some(client) = vec
-        .iter_mut()
-        .find(|client| client.id.as_ref() == Some(&body.client_id))
-    {
-        client.balance = Some(client.balance.unwrap_or(Decimal::new(0, 0)) + body.credit_amount);
-
-        HttpResponse::Ok().json(SingleResponse {
-            status: "success".to_string(),
-            data: CreditResponse {
-                client_id: body.client_id.to_owned(),
-                balance: client.balance.unwrap(),
-            },
-        })
-    } else {
-        // Retornar una respuesta de error si el cliente no se encuentra
-        HttpResponse::Conflict().json(GenericResponse {
-            status: "fail".to_string(),
-            message: format!("Client with id: '{}' doesn't exist", body.client_id),
-        })
-    }
+    process_transaction(body, data, |client, amount| {
+        client.balance += amount;
+        Ok(())
+    })
+    .await
 }
 
 #[post("new_debit_transaction")]
-async fn new_debit_transaction(req_body: String) -> impl Responder {
-    HttpResponse::Ok().body(req_body)
+async fn new_debit_transaction(
+    body: web::Json<CreditOrDebitRequest>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    process_transaction(body, data, |client, amount| {
+        if client.balance < amount {
+            Err("Insufficient balance to debit!")
+        } else {
+            client.balance -= amount;
+            Ok(())
+        }
+    })
+    .await
 }
 
 #[post("store_balances")]
@@ -83,9 +86,21 @@ async fn store_balances(req_body: String) -> impl Responder {
     HttpResponse::Ok().body(req_body)
 }
 
-#[get("client_balance")]
-async fn client_balance(req_body: String) -> impl Responder {
-    HttpResponse::Ok().body(req_body)
+#[get("client_balance/{client_id}")]
+async fn client_balance(path: web::Path<String>, data: web::Data<AppState>) -> impl Responder {
+    let mut vec = data.clients_temp_db.lock().unwrap();
+    let client_id = path.into_inner();
+    if let Some(client) = vec.iter_mut().find(|client| client.id.eq(&client_id)) {
+        HttpResponse::Ok().json(SingleResponse {
+            status: "success".to_string(),
+            data: client,
+        })
+    } else {
+        HttpResponse::Conflict().json(GenericResponse {
+            status: "fail".to_string(),
+            message: format!("Client with id: '{}' doesn't exist", client_id),
+        })
+    }
 }
 
 #[get("/healthchecker")]
@@ -97,4 +112,36 @@ async fn health_checker_handler() -> impl Responder {
         message: MESSAGE.to_string(),
     };
     HttpResponse::Ok().json(response_json)
+}
+
+async fn process_transaction<F>(
+    body: web::Json<CreditOrDebitRequest>,
+    data: web::Data<AppState>,
+    transaction_logic: F,
+) -> impl Responder
+where
+    F: FnOnce(&mut Client, Decimal) -> Result<(), &'static str>,
+{
+    let mut vec = data.clients_temp_db.lock().unwrap();
+
+    if let Some(client) = vec.iter_mut().find(|client| client.id.eq(&body.client_id)) {
+        match transaction_logic(client, body.amount) {
+            Ok(_) => HttpResponse::Ok().json(SingleResponse {
+                status: "success".to_string(),
+                data: CreditOrDebitResponse {
+                    client_id: body.client_id.to_owned(),
+                    new_balance: client.balance,
+                },
+            }),
+            Err(message) => HttpResponse::Conflict().json(GenericResponse {
+                status: "fail".to_string(),
+                message: message.to_string(),
+            }),
+        }
+    } else {
+        HttpResponse::Conflict().json(GenericResponse {
+            status: "fail".to_string(),
+            message: format!("Client with id: '{}' doesn't exist", body.client_id),
+        })
+    }
 }
