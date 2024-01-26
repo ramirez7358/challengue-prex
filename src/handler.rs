@@ -7,6 +7,7 @@ use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::{
+    balance_storage,
     model::{AppState, Client, ClientInfo, CreditOrDebitRequest, CreditOrDebitResponse},
     response::{CreateClientResponse, GenericResponse, SingleResponse},
 };
@@ -17,7 +18,8 @@ pub fn config(conf: &mut web::ServiceConfig) {
         .service(new_client)
         .service(new_credit_transaction)
         .service(new_debit_transaction)
-        .service(client_balance);
+        .service(client_balance)
+        .service(store_balances);
 
     conf.service(scope);
 }
@@ -82,8 +84,15 @@ async fn new_debit_transaction(
 }
 
 #[post("store_balances")]
-async fn store_balances(req_body: String) -> impl Responder {
-    HttpResponse::Ok().body(req_body)
+async fn store_balances(data: web::Data<AppState>) -> impl Responder {
+    let mut vec = data.clients_temp_db.lock().unwrap();
+    vec.iter_mut()
+        .for_each(|client| client.balance = Decimal::new(0, 0));
+
+    match balance_storage::store_balances(&vec) {
+        Ok(_) => HttpResponse::Ok().body("Balances almacenados y reseteados correctamente"),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Error: {}", e)),
+    }
 }
 
 #[get("client_balance/{client_id}")]
