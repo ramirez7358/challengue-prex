@@ -6,8 +6,8 @@ use actix_web::{
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
+use crate::balance_storage::{DataStorage, FileStorage, FILE_PATH};
 use crate::{
-    balance_storage,
     model::{AppState, Client, ClientInfo, CreditOrDebitRequest, CreditOrDebitResponse},
     response::{CreateClientResponse, GenericResponse, SingleResponse},
 };
@@ -86,11 +86,17 @@ async fn new_debit_transaction(
 #[post("store_balances")]
 async fn store_balances(data: web::Data<AppState>) -> impl Responder {
     let mut vec = data.clients_temp_db.lock().unwrap();
-    vec.iter_mut()
-        .for_each(|client| client.balance = Decimal::new(0, 0));
+    let store_method = FileStorage::new(FILE_PATH);
 
-    match balance_storage::store_balances(&vec) {
-        Ok(_) => HttpResponse::Ok().body("Balances almacenados y reseteados correctamente"),
+    match store_method.store_data(&vec) {
+        Ok(_) => {
+            vec.iter_mut()
+                .for_each(|client| client.balance = Decimal::new(0, 0));
+            HttpResponse::Ok().json(SingleResponse {
+                status: "success".to_string(),
+                data: "Balances stored on file and correctly reset from memory!",
+            })
+        }
         Err(e) => HttpResponse::InternalServerError().body(format!("Error: {}", e)),
     }
 }
