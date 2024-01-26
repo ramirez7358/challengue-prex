@@ -1,10 +1,6 @@
-Sure, here's an example of documentation for a GitHub README for an Actix Web application written in Rust. This documentation includes instructions on how to run and build the application.
+# Actix Web Application
 
----
-
-# My Actix Web Application
-
-This repository contains the source code for a web application built with Actix Web, a powerful, pragmatic, and extremely fast web framework for Rust.
+This repository contains the source code of a web application built with Actix Web in order to complete the [Prex](https://www.prexcard.com.ar/) technical challenge.
 
 ## Prerequisites
 
