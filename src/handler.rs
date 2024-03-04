@@ -1,9 +1,8 @@
 use actix_web::{
-    get, post,
-    web::{self},
-    HttpResponse, Responder,
+    get, post, rt::time::sleep, web, HttpResponse, Responder
 };
 use rust_decimal::Decimal;
+use tracing::instrument;
 use uuid::Uuid;
 
 use crate::balance_storage::{DataStorage, FileStorage, FILE_PATH};
@@ -91,8 +90,7 @@ async fn new_credit_transaction(
     process_transaction(body, data, |client, amount| {
         client.balance += amount;
         Ok(())
-    })
-    .await
+    }).await
 }
 
 /// Processes a new debit transaction.
@@ -118,8 +116,8 @@ async fn new_debit_transaction(
             client.balance -= amount;
             Ok(())
         }
-    })
-    .await
+    }).await
+    
 }
 
 /// Stores client balances to a file and resets them in memory.
@@ -209,6 +207,7 @@ async fn health_checker_handler() -> impl Responder {
 ///
 /// # Returns
 /// * A response indicating success or failure of the transaction.
+#[instrument(skip(transaction_logic))]
 async fn process_transaction<F>(
     body: web::Json<CreditOrDebitRequest>,
     data: web::Data<AppState>,

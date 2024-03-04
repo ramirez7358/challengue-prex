@@ -30,6 +30,7 @@ pub struct CreditOrDebitResponse {
     pub new_balance: Decimal,
 }
 
+#[derive(Debug)]
 pub struct AppState {
     pub clients_temp_db: Arc<Mutex<Vec<Client>>>,
 }
